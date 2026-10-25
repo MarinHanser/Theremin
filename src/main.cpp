@@ -125,12 +125,50 @@ void start_measure() {
     PORTB &= ~(1 << PB1);
 }
 
+void buzzer_init() {
+    DDRD |= (1 << PD3);
+    TCCR2A = (1 << WGM21) | (1 << WGM20);
+    TCCR2B = (1 << WGM22) | (1 << CS22) | (1 << CS21);
+}
+
+void buzzer_set(uint16_t freq, uint16_t volume) {
+    uint8_t top = 0;
+    uint8_t duty = 0;
+
+    if (freq > 0) {
+        top = 62500UL / freq - 1;
+        duty = (uint32_t)(top + 1) * volume / 2048;
+    }
+
+    if (duty == 0) {
+        TCCR2A &= ~(1 << COM2B1);
+        PORTD &= ~(1 << PD3);
+    } else {
+        OCR2A = top;
+        OCR2B = duty;
+        TCCR2A |= (1 << COM2B1);
+    }
+}
+
+void adc_init() {
+    ADMUX = (1 << REFS0);
+    ADCSRA = (1 << ADEN) | (1 << ADPS2) | (1 << ADPS1) | (1 << ADPS0);
+}
+
+uint16_t adc_read() {
+    ADCSRA |= (1 << ADSC);
+    while (ADCSRA & (1 << ADSC));
+    return ADC;
+}
+
 int main() {
     char line[17];
     uint16_t last = 0xFFFF;
 
     timer0_init();
     timer1_init();
+    buzzer_init();
+    adc_init();
     lcd_init();
     sei();
 
@@ -147,12 +185,19 @@ int main() {
             if (cm >= MAX_CM) {
                 cm = 999;
             }
+
+            uint16_t freq = 0;
+            if (cm < MAX_CM) {
+                freq = 1400 - cm * 18;
+            }
+            buzzer_set(freq, adc_read());
+
             if (cm != last) {
                 last = cm;
                 if (cm < MAX_CM) {
                     sprintf(line, "Distance: %3u cm", cm);
                     lcd_print(0, line);
-                    sprintf(line, "Tone:  %4u Hz  ", 1400 - cm * 18);
+                    sprintf(line, "Tone:  %4u Hz  ", freq);
                     lcd_print(1, line);
                 } else {
                     lcd_print(0, "Distance: --- cm");
